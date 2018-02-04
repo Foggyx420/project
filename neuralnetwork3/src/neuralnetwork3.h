@@ -1,16 +1,15 @@
 
 #ifndef NEURALNETWORK3_H
 #define NEURALNETWORK3_H
-
 // c++/boost/external include files
 #include <string>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <sqlite3.h>
 #include <curl/curl.h>
 #include <inttypes.h>
 #include <experimental/filesystem>
-#include <boost/filesystem.hpp>
 #include <boost/exception/exception.hpp>
 #include <boost/exception/diagnostic_information.hpp>
 #include <boost/property_tree/xml_parser.hpp>
@@ -18,171 +17,67 @@
 #include <boost/iostreams/filtering_stream.hpp>
 #include <boost/iostreams/copy.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
-// TODO move to std experimental as it has been pushed in c++ 17
-// Namespace for classes
+
+/*************************
+* Network Node Namespace *
+*************************/
+
 namespace fs = std::experimental::filesystem;
-namespace boostfs = boost::filesystem;
-using namespace std;
-using namespace boost;
+namespace boostpt = boost::property_tree;
+namespace boostio = boost::iostreams;
 
-static std::string nndbfile = "NeuralNetwork/nn.db";
-static bool fDebug5 = true;
-
+// Dummy mock stuff
 void startnn();
+
+/*********************
+* Network Node ENUMS *
+*********************/
+
+enum logattribute {
+    NN_DEBUG,
+    NN_INFO,
+    NN_WARNING,
+    NN_ERROR
+};
+
+/*************************
+* Network Node Functions *
+*************************/
+
+void _log(logattribute eType, const std::string& sCall, const std::string& sMessage);
+
+/********************
+* Network Node Data *
+********************/
 
 class nndata
 {
 public:
     // Dummy data
     void setdummy();
-
+    void startnn();
     // Neural Node
-    bool IsNeuralNode();
+/*    bool IsNeuralNodeDownloader();
 
     // Database related
     bool DownloadProjectFiles();
     bool ProcessProjectData();
     bool ImportStatsData(const std::string& project);
-private:
-};
-
-class nncurl
-{
-private:
-    CURL* curl;
-    std::string buffer;
-    long http_code;
-
-    static size_t writeheader(void* ptr, size_t size, size_t nmemb, void* userp)
-    {
-        ((string*)userp)->append((char*)ptr, size * nmemb);
-        return size * nmemb;
-    }
-
-    static size_t writetofile(void* ptr, size_t size, size_t nmemb, FILE* fp)
-    {
-       return fwrite(ptr, size, nmemb, fp);
-    }
-
-public:
-    nncurl()
-        : curl(curl_easy_init())
-    {
-    }
-
-    ~nncurl()
-    {
-        if (curl)
-            curl_easy_cleanup(curl);
-    }
-
-    bool http_download(const std::string& url, const std::string& destination)
-    {
-        CURLcode res;
-
-        try {
-            boostfs::path destpath = boostfs::current_path() / "NeuralNetwork";
-
-            if (!boostfs::exists(destpath))
-                boostfs::create_directory(destpath);
-
-            destpath /= destination;
-
-            // Incase project server down lets not destroy existing project data
-            FILE* fp = fopen("temp", "wb");
-
-            if(!fp)
-            {
-                if (fDebug5)
-                    printf("NN : curl : Failed to open temporary file to download project data; Check file permissions\n");
-
-                return false;
-            }
-
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writetofile);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-            res = curl_easy_perform(curl);
-            fclose(fp);
-
-            if (res > 0)
-            {
-                if (fDebug5)
-                    printf("NN : curl : http_download error: %s\n", curl_easy_strerror(res));
-
-                return false;
-            }
-
-            boostfs::copy_file("temp", destpath, boostfs::copy_option::overwrite_if_exists);
-            boostfs::remove("temp");
-
-            return true;
-
-        }
-
-        catch (const boost::exception& ex)
-        {
-            printf("NN : Boost exception %s\n", boost::diagnostic_information(ex).c_str());
-
-            return false;
-        }
-    }
-
-    bool http_header(const std::string& url, std::string& header)
-    {
-        CURLcode res;
-
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeheader);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        res = curl_easy_perform(curl);
-
-        if (res > 0)
-        {
-            if (fDebug5)
-                printf("NN : curl : http_header error (%s)\n", curl_easy_strerror(res));
-
-            return false;
-        }
-
-        header = buffer;
-
-        return true;
-    }
-};
-
-class nndb
-{
-public:
-    nndb()
-    {
-        res = sqlite3_open(nndbfile.c_str(), &db);
-
-        if (res)
-        {
-            printf("NN : DB : sqlite error (Failed to open database file)\n");
-        }
-    }
-
-    ~nndb()
-    {
-        sqlite3_close(db);
-    }
-
-    bool dbexists()
+*/
+    bool exists_prjfile(const std::string& projectfile)
     {
         try
         {
-            fs::path check_file = nndbfile;
+            std::string prjfile = projectfile + ".gz";
+            fs::path check_file = "NetworkNode";
+            check_file /= prjfile;
 
             return fs::exists(check_file) ? true : false;
         }
 
         catch (std::exception& ex)
         {
-            printf("NN : exists DB : Exception occured while verifying database exists (%s)\n", ex.what());
+            printf("NN : exists_prjfile : Exception occured verifying existence of project file (%s)\n", ex.what());
 
             return false;
         }
@@ -202,120 +97,303 @@ public:
 
             return false;
         }
-
     }
 
-    bool insert_db(const std::string& table, const std::string& key, const std::string& value)
+    bool drop_db(const std::string& type, const std::string& table)
     {
-        // No empty fields allowed
-        if (table.empty() || key.empty() || value.empty())
+        if (type.empty() || table.empty())
         {
-            printf("NN : insertDB : Arugements must all have value\n");
+            printf("NN : drop DB : Arugements must all have value\n");
+
+            return false;
+        }
+    }
+};
+
+/********************
+* Network Node Curl *
+********************/
+
+class nncurl
+{
+private:
+
+    CURL* curl;
+    std::string buffer;
+    std::string header;
+    long http_code;
+    CURLcode res;
+
+    static size_t writeheader(void* ptr, size_t size, size_t nmemb, void* userp)
+    {
+        ((std::string*)userp)->append((char*)ptr, size * nmemb);
+        return size * nmemb;
+    }
+
+    static size_t writetofile(void* ptr, size_t size, size_t nmemb, FILE* fp)
+    {
+        return fwrite(ptr, size, nmemb, fp);
+    }
+
+public:
+
+    nncurl()
+        : curl(curl_easy_init())
+    {
+    }
+
+    ~nncurl()
+    {
+        if (curl)
+            curl_easy_cleanup(curl);
+    }
+
+    bool http_download(const std::string& url, const std::string& destination)
+    {
+        try {
+            fs::path destpath = fs::current_path() / "NetworkNode";
+
+            if (!fs::exists(destpath))
+                fs::create_directory(destpath);
+
+            destpath /= destination;
+
+            FILE* fp = fopen(destination, "wb");
+
+            if(!fp)
+            {
+                _log(NN_ERROR, "nncurl_http_download", "Failed to open project file to download project data into <destination=" + destination + ">");
+
+                return false;
+            }
+
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writetofile);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+            curl_easy_setopt(curl, CURLOPT_PROXY, "");
+            res = curl_easy_perform(curl);
+            fclose(fp);
+
+            if (res > 0)
+            {
+                if (fDebug5)
+                    _log(NN_ERROR, "nncurl_http_download", "Failed to download project file <urlfile=" + url + "> (" + curl_easy_strerror(res) + ")");
+
+                return false;
+            }
+
+            return true;
+
+        }
+
+        catch (std::exception& ex)
+        {
+            _log(NN_ERROR, "nncurl_http_download", "Std exception occured (" + ex.what() + ")");
+
+            return false;
+        }
+    }
+
+    bool http_header(const std::string& url, std::string& etag)
+    {
+        struct curl_slist* headers = NULL;
+
+        headers = curl_slist_append(headers, "Accept: */*");
+        headers = curl_slist_append(headers, "User-Agent: Header-Reader");
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeheader);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &header);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
+        curl_easy_setopt(curl, CURLOPT_PROXY, "");
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        res = curl_easy_perform(curl);
+
+        if (res > 0)
+        {
+            _log(NN_ERROR, "nncurl_http_header", "Failed to capture header of project file <urlfile=" + url + ">");
 
             return false;
         }
 
-        // Create the table if it does not yet exist (meaning new database)
-        std::string createquery = "CREATE TABLE IF NOT EXISTS " + table + " (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);";
-        sqlite3_stmt* createstmt;
-
-        sqlite3_prepare(db, createquery.c_str(), createquery.size(), &createstmt, NULL);
-
-        if (sqlite3_step(createstmt) != SQLITE_DONE)
+        std::istringstream ssinput(header);
+        for (std::string line; std::getline(ssinput, line);)
         {
-            if (fDebug5)
-                printf("NN : insertDB : sqlite error create table <table=%s, key=%s, value=%s> (%s)\n", table.c_str(), key.c_str(), value.c_str(), sqlite3_errmsg(db));
+            if (line.find("ETag: ") != std::string::npos)
+            {
+                size_t pos;
 
-            return false;
+                std::string modstring = line;
+
+                pos = modstring.find("ETag: ");
+
+                etag = modstring.substr(pos+6, modstring.size());
+
+                etag = etag.substr(1, etag.size() - 3);
+            }
         }
 
-        // Inject data into the database by table -> key (primary key of database) -> value
-        std::string insertquery = "INSERT OR REPLACE INTO " + table + " VALUES('" + key + "', '" + value + "');";
-        sqlite3_stmt* insertstmt;
-
-        sqlite3_prepare(db, insertquery.c_str(), insertquery.size(), &insertstmt, NULL);
-
-        if (sqlite3_step(insertstmt) != SQLITE_DONE)
+        if (fDebug5)
         {
-            if (fDebug5)
-                printf("NN : insertDB : sqlite error injecting to table <table=%s, key=%s, value=%s> (%s)\n", table.c_str(), key.c_str(), value.c_str(), sqlite3_errmsg(db));
-
-            return false;
+            _log(NN_INFO, "nncurl_http_header", "Captured ETag for project url <urlfile=" + url + ", ETag=" + etag + ">");
         }
 
         return true;
     }
+};
 
-    bool delete_db(const std::string& table, const std::string& key)
+/************************
+* Network Node Database *
+************************/
+
+class nndb
+{
+private:
+
+    sqlite3* db = nullptr;
+    sqlite3_stmt* stmt = nullptr;
+    int res = 0;
+
+public:
+
+    nndb()
     {
-        // No empty fields allowed
-        if (table.empty() || key.empty())
+        res = sqlite3_open_v2(nndbfile.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+
+        if (res)
+            _log(NN_ERROR, "nndb", "sqlite error occured while opening database (" + std::string(sqlite3_errstr(res)) + ")");
+    }
+
+    ~nndb()
+    {
+        res = sqlite3_close(db);
+
+        if (res)
+            _log(NN_ERROR, "nndb", "sqlite error occured while closing database (" + std::string(sqlite3_errstr(res)) + ")");
+    }
+
+    operator sqlite3*()
+    {
+        return db;
+    }
+
+    bool insert_query(const std::string& querystring)
+    {
+        sqlite3_prepare_v2(db, querystring.c_str(), querystring.size(), &stmt, NULL);
+
+        res = sqlite3_step(stmt);
+
+        if (res != SQLITE_DONE)
         {
-            printf("NN : injectDB : Arugements must all have value\n");
+            _log(NN_ERROR, "nndb_insert_query", "failed to insert into database <type=" + std::to_string(typequery) + ", query=" + querystring + "> (" + std::string(sqlite3_errstr(res)) + ")");
+
+            sqlite3_finalize(stmt);
+            sqlite3_reset(stmt);
 
             return false;
         }
 
-        // Delete by key
-        std::string deletequery = "DELETE FROM " + table + " WHERE key = '" + key + "';";
-        sqlite3_stmt* deletestmt;
-
-        sqlite3_prepare(db, deletequery.c_str(), deletequery.size(), &deletestmt, NULL);
-
-        if (sqlite3_step(deletestmt) != SQLITE_DONE)
-        {
-            if (fDebug5)
-                printf("NN : deleteDB : sqlite error deleting in table <table=%s, key=%s> (%s)\n", table.c_str(), key.c_str(), sqlite3_errmsg(db));
-
-            return false;
-        }
+        sqlite3_finalize(stmt);
+        sqlite3_reset(stmt);
 
         return true;
     }
 
-    bool search_db(const std::string& table, const std::string& key, std::string& value)
+    bool search_query(int typequery, const std::string& searchquery, std::string& valuea, std::string& valueb)
     {
-        // No empty fields allowed
-        if (table.empty() || key.empty())
-        {
-            printf("NN : searchDB : Arguemnts must all have value\n");
+        /*
+         * Type:
+         * 1 = project          : project data (CPID -> TTL CREDIT, TDC)
+         *   = control          : control calls of old project data (CPID -> TTL CREDIT, TDC)
+         *   = contract         : contract releated data (CPID -> TDC, MAG)
+         * 2 = project files    : project etag storage (PROJECT -> ETAG)
+         */
 
-            return false;
-        }
-
-        std::string searchquery = "SELECT value FROM " + table + " WHERE key = '" + key + "';";
-        sqlite3_stmt* searchstmt;
-
-        sqlite3_prepare(db, searchquery.c_str(), searchquery.size(), &searchstmt, NULL);
-
-        sqlite3_step(searchstmt);
+        sqlite3_prepare_v2(db, searchquery.c_str(), searchquery.size(), &stmt, NULL);
 
         try
         {
-            value = reinterpret_cast<const char*>(sqlite3_column_text(searchstmt, 0));
+            if (sqlite3_step(stmt) == SQLITE_ROW)
+            {
+                if (typequery == 1)
+                {
+                    valuea = (const char*)sqlite3_column_text(stmt, 0);
+                    valueb = (const char*)sqlite3_column_text(stmt, 1);
+                }
+
+                if (typequery == 2)
+                    valuea = (const char*)sqlite3_column_text(stmt, 0);
+
+                sqlite3_finalize(stmt);
+                sqlite3_reset(stmt);
+
+                return true;
+            }
         }
 
         catch (std::bad_cast &ex)
         {
-            if(fDebug5)
-                printf("NN : search DB : base cast of value of reply from database (%s)\n", ex.what());
+            _log(NN_DEBUG, "nndb_search_query", "Cast exception for <type=" + std::to_string(typequery) + ", query=" + searchquery + "> (" + ex.what() + ")");
         }
 
-        // Can't use SQLITE_DONE OR OK..
-        if (value.empty())
-        {
-            if (fDebug5)
-                printf("NN : search DB : value returned as empty in ket of table <table=%s, key=%s>\n", table.c_str(), key.c_str());
+        sqlite3_finalize(stmt);
+        sqlite3_reset(stmt);
 
-            return false;
-        }
-        return true;
+        return false;
     }
 
-private:
-    sqlite3* db;
-    int res = 0;
+};
 
+/**********************
+* Network Node Logger *
+**********************/
+
+class nnlogger
+{
+private:
+
+    std::ofstream logfile;
+
+public:
+
+    nnlogger()
+    {
+        fs::path plogfile = fs::current_path() + "NetworkNode";
+
+        if (!fs::exists(plogfile))
+            fs::create_directory(plogfile);
+
+        plogfile /= "nn.log";
+
+        logfile.open(plogfile.c_str(), std::ios_base::out | std::ios_base::app);
+
+        if (!logfile.is_open())
+            printf("NN : Logging : Failed to open logging file");
+    }
+
+    ~nnlogger()
+    {
+        if (logfile.is_open())
+        {
+            logfile.flush();
+            logfile.close();
+        }
+    }
+
+    void output(const std::string& tofile)
+    {
+        if (logfile.is_open())
+            logfile << tofile << std::endl;
+
+        return;
+    }
 };
 
 #endif // NEURALNETWORK3_H
