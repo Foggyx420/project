@@ -24,23 +24,23 @@ using nd = nndata;
 // We only extern the functions allowed to be used by the gridcoin wallet
 extern bool SyncData();
 bool IsNetworkNodeDownloader();
-bool SyncData();
-bool GatherProjectHeader(bool participant);
+bool GatherProjectHeader(const std::string& sPrjFile, std::string& sETag);
 bool DownloadProjectFile(const std::string& sPrjFile, const std::string& sETag);
 void DeleteProjectFile(const std::string& sETag);
 
 // Network Node Database Functions
 bool SearchDatabase(int nTypeQuery, const std::string& sTable, const std::string& sKey, std::string& sValuea, std::string& sValueb);
 bool InsertDatabase(int nTypeQuery, const std::string& sTable, const std::string& sKey, const std::string& sValuea, const std::string& sValueb = "");
-
+bool DropDatabase(const std::string& sTable);
 // Dummy Network Conditions
 // This area to be removed once tested and works and integrated into gridcoin
+// Include these in the database at some point
 std::vector<std::pair<std::string, std::string>> vWhitelist;
 std::vector<std::string> vCPIDs;
+extern void startnn();
 
-void nndata::setdummy()
+void setdummy()
 {
-
     // Dummy CPIDs -- In live network conditions the cpids and whitelist are in cache
     vCPIDs.push_back("f636448e64b48e26aaf610a48a48bb91");
     vCPIDs.push_back("0b5ef259411ec18e8dac2be0b732fd23");
@@ -75,7 +75,12 @@ void startnn()
     if (fDebug5)
         printf("NN : time : Took %" PRId64 " to complete\n", nElapsed);
 */
-    _log(NN_DEBUG, "testcall", "yes this works");
+    setdummy();
+
+    if (SyncData())
+        printf("Syncdata success\n");
+    else
+        printf("Syncdata failed\n");
     return;
 }
 
@@ -94,10 +99,10 @@ void _log(logattribute eType, const std::string& sCall, const std::string& sMess
     {
         switch (eType)
         {
-            case (NN_DEBUG):     sType = "DEBUG";
-            case (NN_INFO):      sType = "INFO";
-            case (NN_WARNING):   sType = "WARNING";
-            case (NN_ERROR):     sType = "ERROR";
+            case NN_DEBUG:     sType = "DEBUG";    break;
+            case NN_INFO:      sType = "INFO";     break;
+            case NN_WARNING:   sType = "WARNING";  break;
+            case NN_ERROR:     sType = "ERROR";    break;
         }
     }
 
@@ -125,9 +130,8 @@ bool IsNetworkNodeDownloader()
 {
     // Use GetArg to see if neuralnode equals true or false once in gridcoin code
     // Check whether they are a participant by grc address default address and day
-    // If true this node downloads the project files and can be shared to other non
-    // downloaders in the network. This method with neural network file share we can
-    // all participate
+    // Consider balance?
+    // If true this node downloads the project files
     return true;
 }
 
@@ -135,8 +139,21 @@ bool SyncData()
 {
     if (IsNetworkNodeDownloader())
     {
+        // Start Calling Functions Related to a Particiapant
         // Download Participant true; begin checks
         // Require 90% project success rate
+        return true;
+    }
+
+    else
+        return false;
+}
+
+bool GatherProjectData(bool bFullSync, bool bParticipant)
+{
+    if (bParticipant && bFullSync)
+    {
+        // Must have 90% success rate to make a contract
         int nRequired = std::floor((double)vWhitelist.size() * 0.9);
         int nSuccess = 0;
 
@@ -144,7 +161,7 @@ bool SyncData()
         {
             if (vWL.first.empty() || vWL.second.empty())
             {
-                _log(NN_WARNING, "SyncData", "Entry in Whitelist vector is empty!");
+                _log(NN_WARNING, "GatherProjectData", "Entry in Whitelist vector is empty!");
 
                 continue;
             }
@@ -164,7 +181,7 @@ bool SyncData()
                     if (sDBETag == sETag)
                     {
                         // No change
-                        _log(NN_INFO, "SyncData", "Project file on server for " + vWL.first + " is unchanged; no need to download");
+                        _log(NN_INFO, "GatherProjectData", "Project file on server for " + vWL.first + " is unchanged; no need to download");
 
                         nSuccess++;
 
@@ -173,17 +190,17 @@ bool SyncData()
                 }
 
                 else
-                    _log(NN_WARNING, "SyncData", "Project file for " + vWL.first + " not found in database (new?)");
+                    _log(NN_WARNING, "GatherProjectData", "Project file for " + vWL.first + " not found in database (new?)");
 
                 // Here we download project files
-                _log(NN_INFO, "SyncData", "Project file on server for " + vWL.first + " is new");
+                _log(NN_INFO, "GatherProjectData", "Project file on server for " + vWL.first + " is new");
 
                 if (!sDBETag.empty())
                     DeleteProjectFile(sDBETag);
 
                 if (DownloadProjectFile(sPrjFile, sETag))
                 {
-                    _log(NN_INFO, "SyncData", "Project file for " + vWL.first + " downloaded and stored as " + sETag + ".gz");
+                    _log(NN_INFO, "GatherProjectData", "Project file for " + vWL.first + " downloaded and stored as " + sETag + ".gz");
 
                     if (InsertDatabase(2, "prjfiles", vWL.first, sETag))
                     {
@@ -194,7 +211,7 @@ bool SyncData()
 
                     else
                     {
-                        _log(NN_ERROR, "SyncData", "Failed to insert ETag for project " + vWL.first);
+                        _log(NN_ERROR, "GatherProjectData", "Failed to insert ETag for project " + vWL.first);
 
                         continue;
                     }
@@ -202,7 +219,7 @@ bool SyncData()
 
                 else
                 {
-                    _log(NN_ERROR, "SyncData", "Failed to download project " + vWL.first + "'s file");
+                    _log(NN_ERROR, "GatherProjectData", "Failed to download project " + vWL.first + "'s file");
 
                     continue;
                 }
@@ -210,7 +227,7 @@ bool SyncData()
 
             else
             {
-                _log(NN_ERROR, "SyncData", "Failed to receive project header for " + vWL.first);
+                _log(NN_ERROR, "GatherProjectData", "Failed to receive project header for " + vWL.first);
 
                 continue;
             }
@@ -220,20 +237,18 @@ bool SyncData()
         {
             _log(NN_ERROR, "SyncData", "Failed to retrieve required amount of projects <Successcount=" + std::to_string(nSuccess) + ", Requiredcount=" + std::to_string(nRequired) + ", whitelistcount=" + std::to_string(vWhitelist.size()) + ">");
 
+
             return false;
         }
 
-        else
-        {
-            // Call function to add/compare in database
-            return true;
-        }
+        return true;
     }
 
-    else
+    else if (!bParticipant)
     {
-        // Not Download Participant; check for new ETags and request from network nodes
+        // Here we are not a participant
     }
+
 }
 
 bool GatherProjectHeader(const std::string& sPrjFile, std::string& sETag)
@@ -272,7 +287,7 @@ bool DownloadProjectFile(const std::string& sPrjFile, const std::string& sETag)
 
         nncurl prjdownload;
 
-        if (prjdownload.http_download(sPrjFile, check_file.string))
+        if (prjdownload.http_download(sPrjFile, std::string(check_file)))
         {
             _log(NN_INFO, "DownloadProjectFile", "Successfully downloaded project file <prjfile=" + sPrjFile + ", etags=" + sETag + ">");
 
@@ -289,7 +304,7 @@ bool DownloadProjectFile(const std::string& sPrjFile, const std::string& sETag)
 
     catch (std::exception& ex)
     {
-        _log(NN_ERROR, "DownloadProjectFile", "Std exception occured (" + ex.what() + ")");
+        _log(NN_ERROR, "DownloadProjectFile", "Std exception occured (" + std::string(ex.what()) + ")");
 
         return false;
     }
@@ -320,7 +335,7 @@ void DeleteProjectFile(const std::string& sETag)
 
     catch (std::exception& ex)
     {
-        _log(NN_ERROR, "DeleteProjectFile", "Std exception occured (" + ex.what() + ")");
+        _log(NN_ERROR, "DeleteProjectFile", "Std exception occured (" + std::string(ex.what()) + ")");
 
         return;
     }
@@ -341,9 +356,9 @@ bool SearchDatabase(int nTypeQuery, const std::string& sTable, const std::string
     if (nTypeQuery == 2)
         sSearchQuery = "SELECT valuea FROM '" + sTable + "' WHERE key = '" + sKey + "';";
 
-    nndb* db;
+    nndb db;
 
-    if (db->search_query(nTypeQuery, sSearchQuery, sValuea, sValueb))
+    if (db.search_query(nTypeQuery, sSearchQuery, sValuea, sValueb))
         return true;
 
     else
@@ -355,24 +370,25 @@ bool SearchDatabase(int nTypeQuery, const std::string& sTable, const std::string
 }
 
 bool InsertDatabase(int nTypeQuery, const std::string& sTable, const std::string& sKey, const std::string& sValuea, const std::string& sValueb)
-{
-    nndb* db;
+{    
+    nndb db;
+
     std::string sInsertQuery;
 
     if (nTypeQuery == 1)
     {
-        sInsertQuery = "CREATE TABLE IF NOT EXISTS '" + sTable + "' (key TEXT PRIMARY NOT NULL, valuea TEXT NOT NULL, valueb TEXT NOT NULL);";
+        sInsertQuery = "CREATE TABLE IF NOT EXISTS " + sTable + " (key TEXT PRIMARY KEY NOT NULL, valuea TEXT NOT NULL, valueb TEXT NOT NULL);";
 
-        if (!db->insert_query(sInsertQuery))
+        if (!db.insert_query(true, sInsertQuery))
         {
             _log(NN_ERROR, "InsertDatabase", "Failed to insert into database <type=" + std::to_string(nTypeQuery) + ", table=" + sTable + ", query=" + sInsertQuery + ">");
 
             return false;
         }
 
-        sInsertQuery = "INSERT OR REPLACE INTO '" + sTable + "' VALUES('" + sKey + "', '" + sValuea + "', '" + sValueb + "');";
+        sInsertQuery = "INSERT OR REPLACE INTO " + sTable + " VALUES('" + sKey + "', '" + sValuea + "', '" + sValueb + "');";
 
-        if (!db->insert_query(sInsertQuery))
+        if (!db.insert_query(false, sInsertQuery))
         {
             _log(NN_ERROR, "InsertDatabase", "Failed to insert into database <type=" + std::to_string(nTypeQuery) + ", table=" + sTable + ", query=" + sInsertQuery + ">");
 
@@ -384,18 +400,18 @@ bool InsertDatabase(int nTypeQuery, const std::string& sTable, const std::string
 
     else if (nTypeQuery == 2)
     {
-        sInsertQuery = "CREATE TABLE IF NOT EXISTS '" + sTable + "' (key TEXT PRIMARY NOT NULL, valuea TEXT NOT NULL);";
+        sInsertQuery = "CREATE TABLE IF NOT EXISTS " + sTable + " (key TEXT PRIMARY KEY NOT NULL, valuea TEXT NOT NULL);";
 
-        if (!db->insert_query(sInsertQuery))
+        if (!db.insert_query(true, sInsertQuery))
         {
             _log(NN_ERROR, "InsertDatabase", "Failed to insert into database <type=" + std::to_string(nTypeQuery) + ", table=" + sTable + ", query=" + sInsertQuery + ">");
 
             return false;
         }
 
-        sInsertQuery = "INSERT OR REPLACE INTO '" + sTable + "' VALUES('" + sKey + "', '" + sValuea + "');";
+        sInsertQuery = "INSERT OR REPLACE INTO " + sTable + " VALUES('" + sKey + "', '" + sValuea + "');";
 
-        if (!db->insert_query(sInsertQuery))
+        if (!db.insert_query(false, sInsertQuery))
         {
             _log(NN_ERROR, "InsertDatabase", "Failed to insert into database <type=" + std::to_string(nTypeQuery) + ", table=" + sTable + ", query=" + sInsertQuery + ">");
 
@@ -405,7 +421,21 @@ bool InsertDatabase(int nTypeQuery, const std::string& sTable, const std::string
         return true;
     }
 }
-/*
+
+bool DropDatabase(const std::string& sTable)
+{
+    // Add conditions for bool
+    nndb db;
+
+    std::string sDumpTable = "DROP TABLE IF EXISTS '" + sTable + "';";
+
+    db.drop_query(sDumpTable);
+
+    _log(NN_INFO, "DropTable", "Dropped table <table=" + sTable + ">");
+
+    return true;
+}
+/* TO BE REFACTOR COMPLETELY
 bool nndata::ProcessProjectData()
 {
     // TODO:

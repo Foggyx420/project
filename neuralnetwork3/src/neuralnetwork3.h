@@ -1,9 +1,12 @@
 
 #ifndef NEURALNETWORK3_H
 #define NEURALNETWORK3_H
+// This file is to not be included anywhere else but the main neuralnetwork3.cpp file!
+
 // c++/boost/external include files
 #include <string>
 #include <cmath>
+#include <zlib.h>
 #include <fstream>
 #include <iostream>
 #include <sqlite3.h>
@@ -40,6 +43,13 @@ enum logattribute {
     NN_ERROR
 };
 
+/***************
+* Network Vars *
+***************/
+
+bool fDebug5 = true;
+std::string nndbfile = "NetworkNode/nn.db";
+
 /*************************
 * Network Node Functions *
 *************************/
@@ -53,9 +63,6 @@ void _log(logattribute eType, const std::string& sCall, const std::string& sMess
 class nndata
 {
 public:
-    // Dummy data
-    void setdummy();
-    void startnn();
     // Neural Node
 /*    bool IsNeuralNodeDownloader();
 
@@ -87,7 +94,8 @@ public:
     {
         try
         {
-            fs::path check_file = nndbfile;
+            fs::path check_file = "NodeNetwork";
+            check_file /= "nn.db";
             return fs::remove(check_file) ? true : false;
         }
 
@@ -151,14 +159,9 @@ public:
     bool http_download(const std::string& url, const std::string& destination)
     {
         try {
-            fs::path destpath = fs::current_path() / "NetworkNode";
+            FILE* fp;
 
-            if (!fs::exists(destpath))
-                fs::create_directory(destpath);
-
-            destpath /= destination;
-
-            FILE* fp = fopen(destination, "wb");
+            fp = fopen(destination.c_str(), "wb");
 
             if(!fp)
             {
@@ -177,8 +180,10 @@ public:
 
             if (res > 0)
             {
-                if (fDebug5)
-                    _log(NN_ERROR, "nncurl_http_download", "Failed to download project file <urlfile=" + url + "> (" + curl_easy_strerror(res) + ")");
+                if (fp)
+                    fclose(fp);
+
+                _log(NN_ERROR, "nncurl_http_download", "Failed to download project file <urlfile=" + url + "> (" + curl_easy_strerror(res) + ")");
 
                 return false;
             }
@@ -189,7 +194,7 @@ public:
 
         catch (std::exception& ex)
         {
-            _log(NN_ERROR, "nncurl_http_download", "Std exception occured (" + ex.what() + ")");
+            _log(NN_ERROR, "nncurl_http_download", "Std exception occured (" + std::string(ex.what()) + ")");
 
             return false;
         }
@@ -258,14 +263,14 @@ class nndb
 private:
 
     sqlite3* db = nullptr;
-    sqlite3_stmt* stmt = nullptr;
     int res = 0;
+    sqlite3_stmt* stmt = nullptr;
 
 public:
 
     nndb()
     {
-        res = sqlite3_open_v2(nndbfile.c_str(), &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
+        res = sqlite3_open_v2(nndbfile.c_str(), &db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, nullptr);
 
         if (res)
             _log(NN_ERROR, "nndb", "sqlite error occured while opening database (" + std::string(sqlite3_errstr(res)) + ")");
@@ -273,35 +278,26 @@ public:
 
     ~nndb()
     {
-        res = sqlite3_close(db);
+        res = sqlite3_close_v2(db);
 
         if (res)
             _log(NN_ERROR, "nndb", "sqlite error occured while closing database (" + std::string(sqlite3_errstr(res)) + ")");
     }
 
-    operator sqlite3*()
-    {
-        return db;
-    }
-
-    bool insert_query(const std::string& querystring)
+    bool insert_query(bool table, const std::string& querystring)
     {
         sqlite3_prepare_v2(db, querystring.c_str(), querystring.size(), &stmt, NULL);
 
         res = sqlite3_step(stmt);
 
-        if (res != SQLITE_DONE)
+        if (!table && res != SQLITE_DONE)
         {
-            _log(NN_ERROR, "nndb_insert_query", "failed to insert into database <type=" + std::to_string(typequery) + ", query=" + querystring + "> (" + std::string(sqlite3_errstr(res)) + ")");
-
             sqlite3_finalize(stmt);
-            sqlite3_reset(stmt);
 
             return false;
         }
 
         sqlite3_finalize(stmt);
-        sqlite3_reset(stmt);
 
         return true;
     }
@@ -314,6 +310,8 @@ public:
          *   = control          : control calls of old project data (CPID -> TTL CREDIT, TDC)
          *   = contract         : contract releated data (CPID -> TDC, MAG)
          * 2 = project files    : project etag storage (PROJECT -> ETAG)
+         *   = whitelist        : whitelist data
+         *   = beacons          : beacons list
          */
 
         sqlite3_prepare_v2(db, searchquery.c_str(), searchquery.size(), &stmt, NULL);
@@ -332,7 +330,6 @@ public:
                     valuea = (const char*)sqlite3_column_text(stmt, 0);
 
                 sqlite3_finalize(stmt);
-                sqlite3_reset(stmt);
 
                 return true;
             }
@@ -344,9 +341,19 @@ public:
         }
 
         sqlite3_finalize(stmt);
-        sqlite3_reset(stmt);
 
         return false;
+    }
+
+    bool drop_query(const std::string table)
+    {
+        std::string dropquery = "DROP TABLE IF EXISTS '" + table + "';";
+
+        sqlite3_prepare_v2(db, dropquery.c_str(), dropquery.size(), &stmt, NULL);
+
+        sqlite3_step(stmt);
+
+        return true;
     }
 
 };
@@ -365,7 +372,8 @@ public:
 
     nnlogger()
     {
-        fs::path plogfile = fs::current_path() + "NetworkNode";
+        fs::path plogfile = fs::current_path();
+        plogfile /= "NetworkNode";
 
         if (!fs::exists(plogfile))
             fs::create_directory(plogfile);
